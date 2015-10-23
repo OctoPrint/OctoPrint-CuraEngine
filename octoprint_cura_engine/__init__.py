@@ -3,7 +3,6 @@ from __future__ import absolute_import
 
 import os
 import flask
-
 import octoprint.plugin
 
 from .profile import Profile
@@ -16,7 +15,6 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
                    		octoprint.plugin.BlueprintPlugin,
                    		octoprint.plugin.StartupPlugin):
 
-
 	#~~ AssetPlugin API
 
 	def get_assets(self):
@@ -26,7 +24,6 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 			"css": ["css/cura_engine.css"]
 		}	
 
-
 	#~~ SettingsPlugin API
 
 	def get_settings_defaults(self):
@@ -34,7 +31,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 			"cura_engine_path": None
 		}
 
-	##~~ SlicerPlugin API
+	#~~ SlicerPlugin API
 
 	def is_slicer_configured(self):
 		cura_engine_path = self._settings.get(["cura_engine_path"])
@@ -48,15 +45,12 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 			progress_report=False
 		)
 
-	def get_slicer_default_profile(self):
-		path = self._settings.get(["default_profile"])
-		if not path:
-			path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "profiles", "default.profile.ini")
-		return self.get_slicer_profile(path)
-
 	def get_slicer_profile(self, path):
-		profile_dict = self._load_profile(path)
-		
+		profile = Profile()
+		profile.set_profile_dict_from_yaml(path)
+		profile_dict = profile.get_profile_dict()
+
+		slicer_type = self.get_slicer_properties()["type"]
 		display_name = None
 		description = None
 		if "_display_name" in profile_dict:
@@ -66,41 +60,46 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 			description = profile_dict["_description"]
 			del profile_dict["_description"]
 
-		properties = self.get_slicer_properties()
-		return octoprint.slicing.SlicingProfile(properties["type"], "unknown", profile_dict, display_name=display_name, description=description)
+		return octoprint.slicing.SlicingProfile(slicer_type, "unknown", profile_dict, display_name=display_name, description=description)
 
-	def _load_profile(self, path):
-		import yaml
-		profile_dict = dict()
-		with open(path, "r") as f:
-			try:
-				profile_dict = yaml.safe_load(f)
-			except:
-				raise IOError("Couldn't read profile from {path}".format(path=path))
-		return profile_dict
+	def get_slicer_default_profile(self):
+		# TODO: Set a default profile for this slicer, compatible with get_slicer_profile and Profile class
+		path = self._settings.get(["default_profile"])
+		if not path:
+			path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "profiles", "default.profile.ini")
+		return self.get_slicer_profile(path)
 
 	def save_slicer_profile(self, path, profile, allow_overwrite=True, overrides=None):
+		# TODO: Manage overrides
 		if os.path.exists(path) and not allow_overwrite:
 			raise octoprint.slicing.ProfileAlreadyExists("cura_engine", profile.name)
 
-		new_profile = Profile.merge_profile(profile.data, overrides=overrides)
+		# We assume profile is a dict with the plain values of the settings (from _load_profile)
+		new_profile = Profile()
+		new_profile.set_profile_dict_from_dict(profile.data)
+		new_profile_dict = new_profile.get_profile_dict()
 
 		if profile.display_name is not None:
-			new_profile["_display_name"] = profile.display_name
+			new_profile_dict["_display_name"] = profile.display_name
 		if profile.description is not None:
-			new_profile["_description"] = profile.description
+			new_profile_dict["_description"] = profile.description
+		self._save_profile(path, new_profile_dict)
 
-		self._save_profile(path, new_profile, allow_overwrite=allow_overwrite)
+	# SlicerPlugin API helper function
 
-	def _save_profile(self, path, profile, allow_overwrite=True):
+	def _save_profile(self, path, profile):
 		import yaml
 		with octoprint.util.atomic_write(path, "wb") as f:
 			yaml.safe_dump(profile, f, default_flow_style=False, indent="  ", allow_unicode=True)
 
+
+
+
+
 	##~~ BlueprintPlugin API
 
 	@octoprint.plugin.BlueprintPlugin.route("/import", methods=["POST"])
-	def import_cura_engine_profile(self):		
+	def import_cura_engine_profile(self):
 		import datetime
 
 		input_name = "file"
@@ -110,7 +109,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		if input_upload_name in flask.request.values and input_upload_path in flask.request.values:
 			filename = flask.request.values[input_upload_name]
 			try:
-				profile_dict = Profile.from_cura_engine_ini(flask.request.values[input_upload_path])
+				profile_dict = Profile.from_cura_engine_json(flask.request.values[input_upload_path])
 			except Exception as e:
 				self._logger.exception("Error while converting the imported profile")
 				return flask.make_response("Something went wrong while converting imported profile: {message}".format(message=str(e)), 500)
@@ -172,6 +171,12 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		r = flask.make_response(flask.jsonify(result), 201)
 		r.headers["Location"] = result["resource"]
 		return r
+
+
+
+
+
+
 
 def _sanitize_name(name):
 	if name is None:
