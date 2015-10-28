@@ -92,12 +92,12 @@
         <div class="modal-body">
             <form class="form-horizontal">
                 <div class="control-group">
-                    <label class="control-label">{{ _('Profile ini file') }}</label>
+                    <label class="control-label">{{ _('Profile JSON file') }}</label>
                     <div class="controls">
                         <div class="input-prepend">
                     <span class="btn fileinput-button">
                         <span>{{ _('Browse...') }}</span>
-                        <input id="settings-cura_engine-import" type="file" name="file" data-url="{{ url_for("plugin.cura_engine.import_cura_engine_profile") }}">
+                        <input id="settings-cura_engine-import" type="file" name="file" accept=".json" data-url="{{ url_for("plugin.cura_engine.import_cura_engine_profile") }}">
                     </span>
                             <span class="add-on" data-bind="text: fileName"></span>
                         </div>
