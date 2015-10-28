@@ -1,6 +1,6 @@
 # OctoPrint-CuraEngine
 
-**TODO:** Describe what your plugin does.
+Plugin to slice within OctoPrint using CuraEngine >= 15.06
 
 ## Setup
 
