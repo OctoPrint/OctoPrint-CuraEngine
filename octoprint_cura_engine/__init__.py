@@ -109,7 +109,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 	def get_slicer_properties(self):
 		return dict(
 			type="cura_engine",
-			name="Cura Engine (>=15.06)",
+			name="Cura Engine 15.10",
 			same_device=True,
 			progress_report=False
 		)

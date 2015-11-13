@@ -3,7 +3,7 @@
 
 # OctoPrint-CuraEngine
 
-Plugin to slice within OctoPrint using CuraEngine >= 15.06
+Plugin to slice within OctoPrint using CuraEngine 15.10
 
 ## Setup
 
