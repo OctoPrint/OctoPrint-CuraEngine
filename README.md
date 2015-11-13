@@ -1,3 +1,6 @@
+**STILL IN DEVELOPMENT, NOT FIT FOR GENERAL CONSUMPTION, DO NOT USE IF NOT A DEVELOPER!**
+
+
 # OctoPrint-CuraEngine
 
 Plugin to slice within OctoPrint using CuraEngine >= 15.06

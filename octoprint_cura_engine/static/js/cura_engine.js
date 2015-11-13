@@ -25,8 +25,13 @@ $(function() {
         self.profileMakeDefault = ko.observable(false);
         self.profileAllowOverwrite = ko.observable(true);
         
+        self.profileEditorStruct = ko.observableArray();
+        self.profileUnderEdit = ko.observableArray();
+        self.profileUnderEditID = ko.observable();
+
         self.configurationDialog = $("#settings_plugin_cura_engine_configurationdialog");
         self.importProfileDialog = $("#settings_plugin_cura_engine_import");
+        self.editProfileDialog = $("#settings_plugin_cura_engine_profile_edit");
 
         self.uploadElement = $("#settings-cura_engine-import");
         self.uploadButton = $("#settings-cura_engine-import-start");
@@ -145,7 +150,7 @@ $(function() {
                 .done(function() {
                     self.requestData();
                 });
-        };
+        }
 
         self.removeProfile = function(data) {
             if (!data.resource) {
@@ -161,12 +166,12 @@ $(function() {
                     self.requestData();
                     self.slicingViewModel.requestData();
                 });
-        };
+        }
 
         self.onBeforeBinding = function () {
             self.settings = self.settingsViewModel.settings;
             self.requestData();
-        };
+        }
 
         self.requestData = function() {
             $.ajax({
@@ -175,7 +180,7 @@ $(function() {
                 dataType: "json",
                 success: self.fromResponse
             });
-        };
+        }
 
         self.fromResponse = function(data) {
             var profiles = [];
@@ -189,7 +194,7 @@ $(function() {
                 });
             });
             self.profiles.updateItems(profiles);
-        };
+        }
 
         // Profile Import
 
@@ -199,12 +204,12 @@ $(function() {
             }
             self.profileMakeDefault(makeDefault);
             $("#settings_plugin_cura_engine_import").modal("show");
-        };
+        }
 
         self._sanitize = function(name) {
             return name.replace(/[^a-zA-Z0-9\-_\.\(\) ]/g, "").replace(/ /g, "_");
-        };
-        
+        }
+
         self.uploadElement.fileupload({
             dataType: "json",
             maxNumberOfFiles: 1,
@@ -261,6 +266,149 @@ $(function() {
                 self.slicingViewModel.requestData();
             }
         });
+
+        // Profile Edit
+
+        self.editProfile = function(data) {
+            // show settings, ensure centered position
+            self.editProfileDialog.modal({
+                minHeight: function() { return Math.max($.fn.modal.defaults.maxHeight() - 80, 250); }
+            }).css({
+                width: 'auto',
+                'margin-left': function() { return -($(this).width() /2); }
+            });
+
+            var dialogTitle = $("h3.modal-title", self.editProfileDialog);
+            dialogTitle.text(_.sprintf(gettext("Edit Printer Profile \"%(name)s\""), {name: data.name}));
+
+            self.profileUnderEditID(data.key);
+
+            $.ajax({
+                url: PLUGIN_BASEURL + "cura_engine/getProfileDict",
+                type: "GET",
+                dataType: "json",
+                data: {profile_id: data.key},
+                success: function(data){
+                    self.profileUnderEdit(data);
+                }
+            });
+
+            $.ajax({
+                url: PLUGIN_BASEURL + "cura_engine/getProfileEditorStruct",
+                type: "GET",
+                dataType: "json",
+                success: function(data){
+                    self.profileEditorStruct(data);
+                }
+            });
+
+            self.editProfileDialog.modal("show");
+        }
+
+        ko.bindingHandlers.createSettingsFields = {
+            init: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
+                var html_string = ''
+                for (var category in valueAccessor()) {
+                    html_string += '<div><h4><a href="#" class="muted" style="text-decoration: none" onclick="$(this).children().toggleClass(\'icon-caret-right icon-caret-down\').parent().parent().parent().next().slideToggle(\'fast\')"><i class="icon-caret-right"></i>';
+                    html_string += ' ' + category;
+                    html_string += '</a></h4></div><div class="hide">';
+                    for (var setting in valueAccessor()[category]) {
+                        var setting_value;
+                        if (self.profileUnderEdit().hasOwnProperty(setting)) {
+                            setting_value = self.profileUnderEdit()[setting];
+                        } else {
+                            setting_value = valueAccessor()[category][setting]["default"];
+                        }
+                        html_string += '<div href="#" data-toggle="tooltip" title="' + valueAccessor()[category][setting]["description"] + '">'
+                        html_string += '<div class="control-group" id="form-' + setting + '"><label class="control-label">';
+                        html_string += valueAccessor()[category][setting]["label"] + '</label>';
+
+                        if (valueAccessor()[category][setting].hasOwnProperty('options')) {
+                            html_string += '<div class="controls"><select name="' + setting + '" style="text-transform: capitalize; text-align: right;">';
+                            for (var option in valueAccessor()[category][setting]['options']) {
+                                html_string += '<option value="' + option + '"';
+                                if (setting_value == option){
+                                    html_string += ' selected ';
+                                }
+                                html_string += '>' + option + '</option>';
+                            }
+                            html_string += '</select></div>';
+
+                        } else if (valueAccessor()[category][setting]["type"] == "boolean"){
+                            html_string += '<div class="controls"><input type="checkbox" name="' + setting + '"';
+                            if (setting_value == true){
+                                html_string += ' checked ';
+                            }
+                            html_string += '></div>';
+
+                        } else {
+                            html_string += '<div class="controls">'
+
+                            if (valueAccessor()[category][setting].hasOwnProperty('unit')) {
+                                html_string += '<div class="input-append">';
+                            }
+
+                            html_string += '<input type="number" name="' + setting + '" placeholder="' + setting_value + '"';
+
+                            if (valueAccessor()[category][setting]["type"] == "int"){
+                                html_string += ' step="1" >';
+                            } else {
+                                html_string += ' step="any" >';
+                            }
+
+                            if (valueAccessor()[category][setting].hasOwnProperty('unit')) {
+                                html_string += '<span class="add-on">' + valueAccessor()[category][setting]["unit"] + '</span></div>';
+                            }
+                            html_string +=  '</div>';
+                        }
+                        html_string += '</div></div>';
+                    }
+                    html_string += '</div>';
+                }
+                $(element).append(html_string);
+            }
+        }
+
+        self.onProfileEditorCancel = function() {
+            self.editProfileDialog.modal("hide");
+        }
+
+        self.onProfileEditorSave = function() {
+            var formData = document.forms["profileEditorForm"];
+
+            // Data validation
+            var validForm = true;
+            for (var setting in formData.elements) {
+                if (formData.elements.hasOwnProperty(setting)) {
+                    var element = document.getElementById("form-" + formData.elements[setting].name);
+                    console.log(formData.elements[setting]);
+                    if (formData.elements[setting].validity.badInput || formData.elements[setting].validity.stepMismatch) {
+                        validForm = false;
+                        element.className = element.className + " error"
+                    } else {
+                        element.className = element.className.replace(/\berror\b/, "");
+                    }
+                }
+            }
+            if (!validForm) {
+                return;
+            }
+
+            var editedProfileData = {};
+            for (var setting in formData.elements) {
+                if (formData.elements.hasOwnProperty(setting)){
+                    editedProfileData[formData.elements[setting].name] = formData.elements[setting].value;
+                }
+            }
+
+            OctoPrint.postJson("plugin/cura_engine/profileEditorSave", {profile_id: self.profileUnderEditID(), profile_data: editedProfileData})
+                .done(function(){
+                    self.editProfileDialog.modal("hide");
+                })
+                .fail(function(){
+                    console.log("FAIL");
+                });
+        }
     }
 
     ADDITIONAL_VIEWMODELS.push([

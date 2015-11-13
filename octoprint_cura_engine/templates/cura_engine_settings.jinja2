@@ -4,8 +4,9 @@
         <button class="btn btn-small" data-bind="click: showPluginConfig" title="{{ _('Plugin Configuration') }}"><i class="icon-wrench"></i></button>
     </div>
 
-    <h3>{{ _('Cura Engine Plugin') }}</h3>
+    {% include "cura_engine_settings_config.jinja2" %}
 
+    <h3>{{ _('Cura Engine Plugin') }}</h3>
 
     <h4>{{ _('Profiles') }}</h4>
 
@@ -27,7 +28,9 @@
                     <td class="settings_plugin_cura_engine_profiles_key"><span class="icon-star" data-bind="invisible: !isdefault()"></span> <span data-bind="text: key"></span></td>
                     <td class="settings_plugin_cura_engine_profiles_name" data-bind="text: name"></td>
                     <td class="settings_plugin_cura_engine_profiles_actions">
-                        <a href="#" class="icon-star" title="{{ _('Make default') }}" data-bind="enable: !isdefault(), css: {disabled: isdefault()}, click: function() { if (!$data.isdefault()) { $root.makeProfileDefault($data); } }"></a>&nbsp;|&nbsp;<a href="#" class="icon-trash" title="{{ _('Delete Profile') }}" data-bind="enable: !isdefault(), css: {disabled: isdefault()}, click: function() { if (!$data.isdefault()) { $root.removeProfile($data); } }"></a>
+                        <a href="#" class="icon-star" title="{{ _('Make default') }}" data-bind="enable: !isdefault(), css: {disabled: isdefault()}, click: function() { if (!$data.isdefault()) { $root.makeProfileDefault($data); } }"></a>&nbsp;|&nbsp;
+                        <a href="#" class="icon-trash" title="{{ _('Delete Profile') }}" data-bind="enable: !isdefault(), css: {disabled: isdefault()}, click: function() { if (!$data.isdefault()) { $root.removeProfile($data); } }"></a>&nbsp;|&nbsp;
+                        <a href="#" class="icon-pencil" title="{{ _('Edit Profile') }}" data-bind="click: function() { $root.editProfile($data); }"></a>
                     </td>
                 </tr>
             </tbody>
@@ -45,102 +48,10 @@
         </div>
     </div>
 
+    {% include "cura_engine_settings_profile_editor.jinja2" %}
+
     <button class="btn pull-right" data-bind="click: showImportProfileDialog">{{ _('Import Profile...') }}</button>
 
-    
-
-
-
-
-
-
-
-
-
-
-    <div id="settings_plugin_cura_engine_configurationdialog" class="modal hide fade">
-        <div class="modal-header">
-            <a href="#" class="close" data-dismiss="modal" aria-hidden="true">&times;</a>
-            <h3>{{ _('Plugin Configuration') }}</h3>
-        </div>
-        <div class="modal-body">
-            <form class="form-horizontal">
-                <div class="control-group" data-bind="css: {error: pathBroken, success: pathOk}">
-                    <label class="control-label">{{ _('Path to Cura Engine') }}</label>
-                    <div class="controls">
-                        <div class="input-append">
-                            <input type="text" class="input-block-level" data-bind="value: configPathCuraEngine">
-                            <button class="btn" type="button" data-bind="click: testCuraEnginePath, enable: configPathCuraEngine, css: {disabled: !configPathCuraEngine()}">{{ _('Test') }}</button>
-                        </div>
-                        <span class="help-block" data-bind="visible: pathBroken() || pathOk, text: pathText"></span>
-                    </div>
-                </div>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" data-dismiss="modal" data-bind="click: onConfigCancel" aria-hidden="true">{{ _('Cancel') }}</button>
-            <button class="btn btn-primary" data-bind="click: onConfigSave" aria-hidden="true">{{ _('Save') }}</button>
-        </div>
-    </div>
-
-
-    <div id="settings_plugin_cura_engine_import" class="modal hide fade">
-        <div class="modal-header">
-            <a href="#" class="close" data-dismiss="modal" aria-hidden="true">&times;</a>
-            <h3>{{ _('Import Existing Cura Profile') }}</h3>
-        </div>
-        <div class="modal-body">
-            <form class="form-horizontal">
-                <div class="control-group">
-                    <label class="control-label">{{ _('Profile JSON file') }}</label>
-                    <div class="controls">
-                        <div class="input-prepend">
-                    <span class="btn fileinput-button">
-                        <span>{{ _('Browse...') }}</span>
-                        <input id="settings-cura_engine-import" type="file" name="file" accept=".json" data-url="{{ url_for("plugin.cura_engine.import_cura_engine_profile") }}">
-                    </span>
-                            <span class="add-on" data-bind="text: fileName"></span>
-                        </div>
-                    </div>
-                </div>
-                <div class="control-group">
-                    <label class="control-label">{{ _('Identifier') }}</label>
-                    <div class="controls">
-                        <input type="text" class="input-block-level" data-bind="value: profileName, attr: {placeholder: placeholderName}">
-                    </div>
-                </div>
-                <div class="control-group">
-                    <label class="control-label">{{ _('Name') }}</label>
-                    <div class="controls">
-                        <input type="text" class="input-block-level" data-bind="value: profileDisplayName, attr: {placeholder: placeholderDisplayName}">
-                    </div>
-                </div>
-                <div class="control-group">
-                    <label class="control-label">{{ _('Description') }}</label>
-                    <div class="controls">
-                        <input type="text" class="input-block-level" data-bind="value: profileDescription, attr: {placeholder: placeholderDescription}">
-                    </div>
-                </div>
-                <div class="control-group">
-                    <div class="controls">
-                        <label class="checkbox">
-                            <input type="checkbox" data-bind="checked: profileMakeDefault"> {{ _('Make default profile') }}
-                        </label>
-                    </div>
-                </div>
-                <div class="control-group">
-                    <div class="controls">
-                        <label class="checkbox">
-                            <input type="checkbox" data-bind="checked: profileAllowOverwrite"> {{ _('Overwrite existing file') }}
-                        </label>
-                    </div>
-                </div>
-            </form>
-        </div>
-        <div class="modal-footer">
-            <button class="btn" data-dismiss="modal" aria-hidden="true">{{ _('Abort') }}</button>
-            <button class="btn btn-primary" id="settings-cura_engine-import-start">{{ _('Confirm') }}</button>
-        </div>
-    </div>
+    {% include "cura_engine_settings_profile_import.jinja2" %}
 
 </div>

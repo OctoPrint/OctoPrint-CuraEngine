@@ -7,17 +7,32 @@ import os
 import flask
 import octoprint.plugin
 import octoprint.slicing
+import json
+import yaml
 
-from .profile import Profile
+from collections import OrderedDict
 from octoprint.util.paths import normalize as normalize_path
+from octoprint.server import NO_CONTENT
+
+editable_profile_settings = ["layer_height", "layer_height_0", "line_width",
+	"shell_thickness", "wall_thickness", "top_bottom_thickness", "travel_compensate_overlapping_walls_enabled",
+	"infill_sparse_density", "infill_pattern", "infill_overlap", "infill_sparse_thickness",
+	"material_print_temperature", "material_bed_temperature", "material_diameter", "material_flow", "retraction_enable", "retraction_amount", "retraction_speed", "retraction_min_travel", "retraction_hop",
+	"speed_print", "speed_infill", "speed_wall", "speed_travel", "speed_layer_0",
+	"retraction_combing",
+	"cool_fan_enabled", "cool_fan_speed", "cool_fan_full_layer", "cool_min_layer_time",
+	"support_enable", "support_type", "support_xy_distance", "support_z_distance", "support_roof_enable", "support_use_towers", "support_pattern", "support_infill_rate",
+	"adhesion_type", "skirt_line_count", "skirt_gap", "skirt_minimal_lenght", "brim_line_count"]
+
+settings_properties = ["default", "label", "description", "unit", "min_value", "max_value", "type", "options"]
 
 
 class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
-						octoprint.plugin.SettingsPlugin,
-                   		octoprint.plugin.TemplatePlugin,
-                   		octoprint.plugin.AssetPlugin,
-                   		octoprint.plugin.BlueprintPlugin,
-                   		octoprint.plugin.StartupPlugin):
+	octoprint.plugin.SettingsPlugin,
+	octoprint.plugin.TemplatePlugin,
+	octoprint.plugin.AssetPlugin,
+	octoprint.plugin.BlueprintPlugin,
+	octoprint.plugin.StartupPlugin):
 
 	def __init__(self):
 		self._logger = logging.getLogger("octoprint.plugins.cura_engine")
@@ -40,7 +55,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 	#~~ StartupPlugin API
 
 	def on_startup(self, host, port):
-		# setup our custom logger
+		# Setup our custom logger
 		cura_logging_handler = logging.handlers.RotatingFileHandler(self._settings.get_plugin_logfile_path(), maxBytes=2*1024*1024)
 		cura_logging_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
 		cura_logging_handler.setLevel(logging.DEBUG)
@@ -48,6 +63,35 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		self._cura_engine_logger.addHandler(cura_logging_handler)
 		self._cura_engine_logger.setLevel(logging.DEBUG)
 		self._cura_engine_logger.propagate = False
+
+		self._profile_struct = self._get_profile_struct()
+
+	def _get_profile_struct(self):
+		default_json_path = os.path.join(self._basefolder, "profiles", "fdmprinter.json")
+		with open(default_json_path, 'r') as f:
+			try:
+				raw_profile_dict = json.loads(f.read(), object_pairs_hook=OrderedDict)
+			except:
+				raise IOError("Couldn't load JSON profile from {path}".format(path=json_path))
+
+		profile_struct = OrderedDict()
+		for category in raw_profile_dict["categories"]:
+			temp_dict = OrderedDict()
+			self._find_settings_with_properties(raw_profile_dict["categories"][category], temp_dict)
+			profile_struct[raw_profile_dict["categories"][category]["label"]] = temp_dict.copy()
+
+		return profile_struct
+
+	def _find_settings_with_properties(self, data_dict, struct_dict):
+		if not isinstance(data_dict, dict):
+			return
+		for key in data_dict.keys():
+			if isinstance(data_dict[key], dict) and "default" in data_dict[key].keys():
+				struct_dict[key] = dict()
+				for s_property in settings_properties:
+					if s_property in data_dict[key].keys():
+						struct_dict[key][s_property] = data_dict[key][s_property]
+			self._find_settings_with_properties(data_dict[key], struct_dict)
 
 	#~~ SettingsPlugin API
 
@@ -71,7 +115,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		)
 
 	def get_slicer_profile(self, path):
-		profile_dict = Profile.get_profile_from_yaml(path).get_profile_dict()
+		profile_dict = get_profile_dict_from_yaml(path)
 		slicer_type = self.get_slicer_properties()["type"]
 
 		if "_display_name" in profile_dict:
@@ -89,16 +133,16 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		return octoprint.slicing.SlicingProfile(slicer_type, "unknown", profile_dict, display_name=display_name, description=description)
 
 	def get_slicer_default_profile(self):
-		profile_dict = profile.Profile().get_profile_dict()
+		profile_dict = get_profile_dict_from_json(os.path.join(self._basefolder, "profiles", "fdmprinter.json"))
 		slicer_type = self.get_slicer_properties()["type"]
-		return octoprint.slicing.SlicingProfile(slicer_type, "unknown", profile_dict, display_name="Default Profile", description="Default profile for Cura Engine plugin")
+		return octoprint.slicing.SlicingProfile(slicer_type, "unknown", profile_dict, display_name="Default profile", description="Default profile for Cura Engine plugin")
 
 	def save_slicer_profile(self, path, profile, allow_overwrite=True, overrides=None):
 		# TODO: Manage overrides
 		if os.path.exists(path) and not allow_overwrite:
-			raise octoprint.slicing.ProfileAlreadyExists("cura_engine", profile.name)
+			raise octoprint.slicing.ProfileAlreadyExists("cura_engine", name)
 
-		profile_dict = Profile(profile.data).get_profile_dict()
+		profile_dict = profile.data
 
 		if profile.display_name is not None:
 			profile_dict["_display_name"] = profile.display_name
@@ -122,7 +166,18 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 
 				if not profile_path:
 					profile_path = self._settings.get(["default_profile"])
-				profile_dict = Profile.get_profile_from_yaml(profile_path).get_profile_settings()
+				profile_dict = get_profile_dict_from_yaml(profile_path)
+
+				if "material_diameter" in profile_dict:
+					filament_diameter = float(profile_dict["material_diameter"])
+				else:
+					filament_diameter = None
+
+				if on_progress:
+					if not on_progress_args:
+						on_progress_args = ()
+					if not on_progress_kwargs:
+						on_progress_kwargs = dict()
 
 				command_args = self._build_command(executable, model_path, printer_profile, machinecode_path, profile_dict, position)
 
@@ -133,7 +188,7 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 				p.wait_events()
 				self._slicing_commands[machinecode_path] = p.commands[0]
 
-			returncode, analysis = self._parse_slicing_output(p)
+			returncode, analysis = self._parse_slicing_output(p, on_progress, on_progress_args, on_progress_kwargs, filament_diameter=filament_diameter)
 
 			with self._job_mutex:
 				if machinecode_path in self._cancelled_jobs:
@@ -177,13 +232,15 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		command_args = [executable, 'slice', '-v', '-p']
 		command_args += ['-j', '{path}'.format(path=os.path.join(self._basefolder, "profiles", "fdmprinter.json"))]
 		for key, value in profile_dict.items():
-			command_args += ['-s', '{k}={v}'.format(k=key, v=value)]
+			# Ignore internal settings
+			if key[0] != '_':
+				command_args += ['-s', '{k}={v}'.format(k=key, v=value)]
 		command_args += ['-l', '{path}'.format(path=model_path)]
 		command_args += ['-o', '{path}'.format(path=machinecode_path)]
 
 		return command_args
 
-	def _parse_slicing_output(self, p):
+	def _parse_slicing_output(self, p, on_progress, on_progress_args, on_progress_kwargs, filament_diameter=None):
 		analysis = dict()
 		while p.returncode is None:
 			line = p.stderr.readline(timeout=0.5)
@@ -191,6 +248,30 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 				p.commands[0].poll()
 				continue
 			self._cura_engine_logger.debug(line.strip())
+
+			if "Progress" in line:
+				try:
+					on_progress_kwargs["_progress"] = float(line.split(' ')[-1].strip()[:-1])
+				except:
+					self._cura_engine_logger.exception("Unable to parse progress from engine output")
+				else:
+					on_progress(*on_progress_args, **on_progress_kwargs)
+
+			elif "Print time: " in line:
+				analysis["estimatedPrintTime"] = line[line.find("Print time: ")+len("Print time: "):]
+			elif "Filament: " in line and filament_diameter is not None:
+				import math
+				# CuraEngine expresses the usage volume in mm^3
+				# usage_volume should be expressed in cm^3
+				# usage_length should be expressed in mm
+				try:
+					usage_volume = float(line[line.find("Filament: ")+len("Filament: "):]) / 1000
+				except:
+					self._cura_engine_logger.exception("Unable to parse filament usage from engine output")
+				else:
+					usage_length = (usage_volume * 1000) / (math.pi * (filament_diameter / 2) ** 2)
+					analysis["filament"] = {"tool0": {"volume": usage_volume, "length": usage_length}}
+
 		p.close()
 		return p.returncode, analysis
 
@@ -202,7 +283,6 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 				if command is not None:
 					command.terminate()
 				self._logger.info(u"Cancelled slicing of %s" % machinecode_path)
-
 
 	##~~ BlueprintPlugin API
 
@@ -217,17 +297,17 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		if input_upload_name in flask.request.values and input_upload_path in flask.request.values:
 			filename = flask.request.values[input_upload_name]
 			try:
-				profile_dict = Profile.get_profile_from_json(flask.request.values[input_upload_path]).get_profile_dict()
+				profile_dict = get_profile_dict_from_json(flask.request.values[input_upload_path])
 			except Exception as e:
-				# self._logger.exception("Error while converting the imported profile")
+				self._logger.exception("Error while converting the imported profile")
 				return flask.make_response("Something went wrong while converting imported profile: {message}".format(message=str(e)), 500)
 
 		else:
-			# self._logger.warn("No profile file included for importing, aborting")
+			self._logger.warn("No profile file included for importing, aborting")
 			return flask.make_response("No file included", 400)
 
 		if profile_dict is None:
-			# self._logger.warn("Could not convert profile, aborting")
+			self._logger.warn("Could not convert profile, aborting")
 			return flask.make_response("Could not convert Cura profile", 400)
 
 		name, _ = os.path.splitext(filename)
@@ -260,15 +340,15 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 			                                   display_name=profile_display_name,
 			                                   description=profile_description)
 		except octoprint.slicing.ProfileAlreadyExists:
-			# self._logger.warn("Profile {profile_name} already exists, aborting".format(**locals()))
-			return flask.make_response("A profile named {profile_name} already exists for slicer Cura Engine".format(**locals()), 409)
+			self._logger.warn("profile {profile_name} already exists, aborting".format(profile_name=profile_name))
+			return flask.make_response("A profile named {profile_name} already exists for slicer Cura Engine".format(profile_name=profile_name), 409)
 
 		if profile_make_default:
 			try:
 				self._slicing_manager.set_default_profile("cura_engine", profile_name)
 			except octoprint.slicing.UnknownProfile:
-				# self._logger.warn("Profile {profile_name} could not be set as default, aborting".format(**locals()))
-				return flask.make_response("The profile {profile_name} for slicer cura could not be set as default".format(**locals()), 500)
+				self._logger.warn("profile {profile_name} could not be set as default, aborting".format(profile_name=profile_name))
+				return flask.make_response("The profile {profile_name} for slicer cura could not be set as default".format(profile_name=profile_name), 500)
 
 		result = dict(
 			resource=flask.url_for("api.slicingGetSlicerProfile", slicer="cura_engine", name=profile_name, _external=True),
@@ -280,11 +360,68 @@ class CuraEnginePlugin(octoprint.plugin.SlicerPlugin,
 		r.headers["Location"] = result["resource"]
 		return r
 
+	# Profile editor
+	@octoprint.plugin.BlueprintPlugin.route("/getProfileEditorStruct", methods=["GET"])
+	def get_profile_editor_structure(self):
+		# Filter out the non-editable settings
+		profile_editor_struct = self._profile_struct.copy()
+		for category in profile_editor_struct.keys():
+			for setting in profile_editor_struct[category]:
+				if setting not in editable_profile_settings:
+					del profile_editor_struct[category][setting]
+			if len(profile_editor_struct[category].keys()) == 0:
+				del profile_editor_struct[category]
 
+		return flask.make_response(json.dumps(profile_editor_struct), 200)
 
+	@octoprint.plugin.BlueprintPlugin.route("/getProfileDict", methods=["GET"])
+	def get_profile_dict_for_editor(self):
+		filename = flask.request.values["profile_id"] + ".profile"
+		profile_path = os.path.join(self._settings.getBaseFolder("slicingProfiles"), "cura_engine", filename)
+		profile_dict = get_profile_dict_from_yaml(profile_path)
 
+		return flask.make_response(flask.jsonify(profile_dict), 200)
 
+	@octoprint.plugin.BlueprintPlugin.route("/profileEditorSave", methods=["POST"])
+	def save_edited_profile(self):
+		if not "profile_data" in flask.request.json.keys():
+			return flask.make_response("Profile data not found in request", 400)
+		if not "profile_id" in flask.request.json.keys():
+			return flask.make_response("Profile ID not found in request", 400)
 
+		edited_profile_dict = flask.request.json["profile_data"]
+		profile_filename = flask.request.json["profile_id"] + ".profile"
+
+		profile_path = os.path.join(self._settings.getBaseFolder("slicingProfiles"), "cura_engine", profile_filename)
+		profile_dict = get_profile_dict_from_yaml(profile_path)
+
+		for setting in edited_profile_dict.keys():
+			# TODO: Check for valid data_type
+			if edited_profile_dict[setting] != "":
+				profile_dict[setting] = self._parse_values_from_editor(edited_profile_dict[setting])
+
+		try:
+			with octoprint.util.atomic_write(profile_path, "wb") as f:
+				yaml.safe_dump(profile_dict, f, default_flow_style=False, indent="  ", allow_unicode=True)
+		except:
+			return flask.make_response("Unable to save edited profile to disk", 500)
+
+		return NO_CONTENT
+
+	def _parse_values_from_editor(self, value):
+		if value == 'on':
+			return True
+		if value == 'off':
+			return False
+		try:
+			return int(value)
+		except:
+			pass
+		try:
+			return float(value)
+		except:
+			pass
+		return value
 
 def _sanitize_name(name):
 	if name is None:
@@ -298,6 +435,37 @@ def _sanitize_name(name):
 	sanitized_name = ''.join(c for c in name if c in valid_chars)
 	sanitized_name = sanitized_name.replace(" ", "_")
 	return sanitized_name.lower()
+
+def get_profile_dict_from_json(json_path):
+	if not os.path.exists(json_path) or not os.path.isfile(json_path):
+		return None # TODO: Raise exception ?
+	profile_dict = dict()
+	with open(json_path, 'r') as f:
+		try:
+			raw_profile_dict = json.loads(f.read())
+		except:
+			raise IOError("Couldn't load JSON profile from {path}".format(path=json_path))
+	_find_settings(profile_dict, raw_profile_dict)
+	return profile_dict
+
+def get_profile_dict_from_yaml(yaml_path):
+	if not os.path.exists(yaml_path) or not os.path.isfile(yaml_path):
+		return None # TODO: Raise exception ?
+	profile_dict = dict()
+	with open(yaml_path, "r") as f:
+		try:
+			profile_dict = yaml.safe_load(f)
+		except:
+			raise IOError("Couldn't load YAML profile from {path}".format(path=yaml_path))
+	return profile_dict
+
+def _find_settings(plain_dict, data_dict):
+	if not isinstance(data_dict, dict):
+		return
+	for key in data_dict.keys():
+		if isinstance(data_dict[key], dict) and "default" in data_dict[key]:
+			plain_dict[key] = data_dict[key]["default"]
+		_find_settings(plain_dict, data_dict[key])
 
 
 
