@@ -1,4 +1,4 @@
-**STILL IN DEVELOPMENT, NOT FIT FOR GENERAL CONSUMPTION, DO NOT USE IF NOT A DEVELOPER!**
+> ✋ **Provided as is, no support, no maintenance**
 
 
 # OctoPrint-CuraEngine
